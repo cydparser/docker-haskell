@@ -1,0 +1,43 @@
+#!/bin/bash
+#
+# Takes a list of executables and writes a tarball to stdout that is suitable to use as a docker
+# context. The tarball includes shared libraries, a Dockerfile (generated if not present), and sh.
+set -e -o pipefail
+
+if [ $# -lt 1 ]; then
+  NAME="$(basename "$PWD")"
+  BIN="dist/build/$NAME/$NAME"
+
+  if [ -e "$BIN" ]; then
+    set -- "dist/build/$NAME/$NAME"
+  else
+    echo "Usage: $0 FILE..." >&2
+    exit 1
+  fi
+fi
+
+if [ ! -f /Dockerfile ]; then
+  cat <<EOF > /Dockerfile
+FROM scratch
+COPY . /
+CMD ["/usr/local/bin/$(basename "$1")"]
+EOF
+fi
+
+files() {
+  {
+    for f in UTF-16.so UTF-32.so UTF-7.so gconv-modules gconv-modules.cache; do
+      echo "/usr/lib/x86_64-linux-gnu/gconv/$f"
+    done;
+
+    for bin in "$@"; do
+      cp -L "$bin" /usr/local/bin/
+      echo "/usr/local/bin/$(basename "$bin")"
+      ldd "$bin"
+    done |
+      grep -v linux-vdso.so.1 |
+      sed 's/.*=> //g' | sed 's/ (.*//g' | tr -d ' \t';
+  } | sort -u
+}
+
+tar --dereference -czf - /Dockerfile $(files "$@" /bin/sh | xargs)
